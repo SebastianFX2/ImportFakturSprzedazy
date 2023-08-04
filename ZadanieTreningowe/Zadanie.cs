@@ -16,6 +16,9 @@ using Soneta.Kasa;
 using Soneta.EwidencjaVat;
 using Mono.Cecil.Cil;
 using Soneta.Types;
+using static Soneta.Towary.CenyRabatyProgowe;
+using static Soneta.CRM.CRMModule;
+using Soneta.BI;
 
 [assembly: Worker(typeof(ZadanieTreningowe.Zadanie), typeof(DokEwidencja))]
 
@@ -27,7 +30,7 @@ namespace ZadanieTreningowe
         public NamedStream XMLFileName { get; set; }
 
         [Context]
-        public Session Session { get; set; }
+        public Context context { get; set; }
 
         [Action(
             "Import faktur",
@@ -36,77 +39,67 @@ namespace ZadanieTreningowe
             Mode = ActionMode.SingleSession,
             Target = ActionTarget.ToolbarWithText)]
 
-        public void Fun(Context context)
+        public MessageBoxInformation Fun()
         {
-            CoreModule coreModule = CoreModule.GetInstance(Session);
-            ListXml dane = ReadFile(XMLFileName);
-            CRMModule crmModule = CRMModule.GetInstance(Session);
-            KsiegaModule ksiegaModule = KsiegaModule.GetInstance(Session);
-            EwidencjaVatModule ewidencjaVatModule = EwidencjaVatModule.GetInstance(Session);
+            List<ListXml> lxml = new List<ListXml>();
+            ListXml dane = ReadXml.ReadFile(XMLFileName);
 
             //Otwieramy tranzakcję bazodawnową
-            using (Session session = context.Login.CreateSession(true, false))
+            using (Session session = context.Login.CreateSession(false, true))
             {
-                bool isKontrahentExist = false;
+                CoreModule coreModule = CoreModule.GetInstance(session);
+                CRMModule crmModule = CRMModule.GetInstance(session);
+                HandelModule handel = HandelModule.GetInstance(session);
+                EwidencjaVatModule ewidencjaVatModule = EwidencjaVatModule.GetInstance(session);
+
                 
+                bool isKontrahentExist = false;
+                bool isDokumentExist = false;
+
                 Kontrahenci kontrahenci = crmModule.Kontrahenci;
                 //sprawdzanie czy istnieje kontrahent
                 var checkKontahent = kontrahenci.WgKodu[dane.Kontrahent.Kod];
+
+
                 if (checkKontahent != null)
                     isKontrahentExist = true;
 
-
                 //Otwieramy transkację biznesową do edycji
-                using (ITransaction tran = Session.Logout(true))
+                using (ITransaction tran = session.Logout(true))
                 {
+                    //Tworzymy pustego kontrahenta
+                    Kontrahent kontrahent = new Kontrahent();
                     if (!isKontrahentExist)
                     {
-                        //Tworzymy pustego kontrahenta
-                        Kontrahent kontrahent = new Kontrahent()
-                        {
-                            Kod = dane.Kontrahent.Kod,
-                            Nazwa = dane.Kontrahent.Nazwa,
-                            NIP = dane.Kontrahent.Nip,
-                        };
-                        //Dodajemy pusty obiekt do tablie kontrahentów
+                        //Dodajemy kontrahenta do bazy
                         crmModule.Kontrahenci.AddRow(kontrahent);
-                        kontrahent.Adres.Ulica = dane.Kontrahent.Ulica;
-                        kontrahent.Adres.Miejscowosc = dane.Kontrahent.Miasto;
-                        kontrahent.Adres.Kraj = dane.Kontrahent.Kraj;
+                        kontrahent = CreateKontrahent.Create(kontrahent, dane);
+                    }
+                    else
+                    {
+                        //Znajdujemy istniejącego kontrahenta w bazie
+                        kontrahent = crmModule.Kontrahenci.WgKodu[dane.Kontrahent.Kod];
                     }
 
-                    SprzedazEwidencja ewidencja = new SprzedazEwidencja();
-                    coreModule.DokEwidencja.AddRow(ewidencja);
+                    DefinicjaDokumentu def = coreModule.DefDokumentow.WgSymbolu["SPT"];
+                    SprzedazEwidencja nowySPT = new SprzedazEwidencja();
+                    coreModule.DokEwidencja.AddRow(nowySPT);
 
-                    for (int i = 0; i < dane.Vat.Count; i++)
-                    {
-                        int stawka = int.Parse(dane.Vat[i].Stawka);
-                        ewidencjaVatModule.EleEwidencjiVATT.AddRow(new ElemEwidencjiVATSprzedaz(ewidencja)
-                        {  
-                            DefinicjaStawki = coreModule.DefStawekVat[StatusStawkiVat.Opodatkowana, new Percent(stawka), false],
-                            Brutto = Int32.Parse(dane.Vat[i].Brutto)
-                        });
-                    }
+                    // Ustawienie numeru dokumentu, podmiotu i opisu
+                    nowySPT = CreateSPT.Create(nowySPT, def, dane, kontrahent);
 
-                    ElementOpisuEwidencji elemOpisu = new ElementOpisuEwidencji(ewidencja)
-                    {
-                        Kwota = Int32.Parse(dane.Kwoty.brutto),
-                        Symbol = dane.NumerPelny
-                    };
-                    ksiegaModule.OpisAnalityczny.AddRow(elemOpisu);
+
+
+                    // Dodanie elementów VAT
+                    AddElementVat.Add(nowySPT, dane, coreModule, ewidencjaVatModule);
+                    
+
 
                     tran.Commit();
                 }
 
                 session.Save();
             }
-
-
-        }
-
-
-        public MessageBoxInformation Funkcja(Kontrahenci kontrahenci)
-        {
 
             return new MessageBoxInformation("Import")
             {
@@ -116,76 +109,8 @@ namespace ZadanieTreningowe
             };
         }
 
-        public ListXml ReadFile(NamedStream XMLFileName)
-        {
-            StreamReader objReader = new StreamReader(XMLFileName.FileName);
 
-            string linia = "";
-            string kawalki = "";
-            int iloscVat = 0;
-
-            //odczytanie danych z xml (każda wartość do nowej lini)
-            while (linia != null)
-            {
-                linia = objReader.ReadLine();
-
-                if (linia != null && linia != "")
-                {
-                    iloscVat = Regex.Matches(linia, "LINIA_VAT").Count;
-                    kawalki = Regex.Replace(linia, "<.*?>", "\n");
-                }
-            }
-            objReader.Close();
-
-            iloscVat /= 2;
-
-            //Wrzucenie wartości do listy
-            List<string> daneXml = kawalki.Split('\n').ToList();
-
-            //usunięcie pustych elementów listy
-            int i = 0;
-            while (i < daneXml.Count)
-            {
-                if (daneXml[i] == "")
-                {
-                    daneXml.Remove(daneXml[i]);
-                }
-                else
-                    i++;
-            }
-
-            //wyodrębnianie danych z listy
-
-            //kontrahent
-            KontrahentXml kontrahent = new KontrahentXml(daneXml[24], daneXml[25], daneXml[26],
-                                                         daneXml[27], daneXml[28], daneXml[29],
-                                                         daneXml[30], daneXml[31]);
-
-            //nr Dokumentu
-            string numerDokumentu = daneXml[5];
-
-            //vat
-            List<ListVatXml> stawkiVat = new List<ListVatXml>();
-
-            int flagStawka = daneXml.Count - 9;
-            int flagBrutto = daneXml.Count - 4;
-
-            //pętla korzysta z zmiennej iloscVat która mówi ile Vat-ów ma dokument
-            //(zmienna została naliczona przy pętli do odczytania danych z XML)
-            for (int j = 0; j < iloscVat; j++)
-            {
-                stawkiVat.Add(new ListVatXml(daneXml[flagStawka], daneXml[flagBrutto]));
-
-                flagStawka -= 9;
-                flagBrutto -= 9;
-            }
-
-            //kwoty
-            ListaKwoty kwoty = new ListaKwoty(daneXml[50], daneXml[51]);
-
-            //Obiekt klasy przechowującej kontrahenta, numer dokumentu i stawki VAT
-            return new ListXml(kontrahent, numerDokumentu, stawkiVat, kwoty);
-        }
+       
     }
 }
 

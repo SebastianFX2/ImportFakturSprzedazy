@@ -6,13 +6,13 @@ namespace ZadanieTreningowe
 {
     public class ListaKwoty
     {
-        public string netto;
-        public string brutto;
+        public string Netto;
+        public string Brutto;
 
         public ListaKwoty(string netto, string brutto)
         {
-            this.netto = netto;
-            this.brutto = brutto;
+            this.Netto = netto;
+            this.Brutto = brutto;
         }
     }
 }
