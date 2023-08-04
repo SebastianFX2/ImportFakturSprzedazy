@@ -19,6 +19,7 @@ using Soneta.Types;
 using static Soneta.Towary.CenyRabatyProgowe;
 using static Soneta.CRM.CRMModule;
 using Soneta.BI;
+using RabbitMQ.Client.Framing.Impl;
 
 [assembly: Worker(typeof(ZadanieTreningowe.Zadanie), typeof(DokEwidencja))]
 
@@ -27,7 +28,7 @@ namespace ZadanieTreningowe
     public class Zadanie
     {
         [Context, Required]
-        public NamedStream XMLFileName { get; set; }
+        public NamedStream[] XMLFileName { get; set; }
 
         [Context]
         public Context context { get; set; }
@@ -42,10 +43,16 @@ namespace ZadanieTreningowe
         public MessageBoxInformation Fun()
         {
             List<ListXml> lxml = new List<ListXml>();
-            ListXml dane = ReadXml.ReadFile(XMLFileName);
 
-            //Otwieramy tranzakcję bazodawnową
-            using (Session session = context.Login.CreateSession(false, true))
+
+            string endMessage = "";
+
+            foreach (var xmlFName in XMLFileName) 
+            {
+                
+                ListXml dane = ReadXml.ReadFile(xmlFName);
+                //Otwieramy tranzakcję bazodawnową
+                using (Session session = context.Login.CreateSession(false, true))
             {
                 CoreModule coreModule = CoreModule.GetInstance(session);
                 CRMModule crmModule = CRMModule.GetInstance(session);
@@ -54,7 +61,6 @@ namespace ZadanieTreningowe
 
                 
                 bool isKontrahentExist = false;
-                bool isDokumentExist = false;
 
                 Kontrahenci kontrahenci = crmModule.Kontrahenci;
                 //sprawdzanie czy istnieje kontrahent
@@ -64,47 +70,69 @@ namespace ZadanieTreningowe
                 if (checkKontahent != null)
                     isKontrahentExist = true;
 
-                //Otwieramy transkację biznesową do edycji
-                using (ITransaction tran = session.Logout(true))
-                {
-                    //Tworzymy pustego kontrahenta
-                    Kontrahent kontrahent = new Kontrahent();
-                    if (!isKontrahentExist)
+                    //Otwieramy transkację biznesową do edycji
+                    using (ITransaction tran = session.Logout(true))
                     {
-                        //Dodajemy kontrahenta do bazy
-                        crmModule.Kontrahenci.AddRow(kontrahent);
-                        kontrahent = CreateKontrahent.Create(kontrahent, dane);
-                    }
-                    else
-                    {
-                        //Znajdujemy istniejącego kontrahenta w bazie
-                        kontrahent = crmModule.Kontrahenci.WgKodu[dane.Kontrahent.Kod];
-                    }
+                        //Tworzymy pustego kontrahenta
+                        Kontrahent kontrahent = new Kontrahent();
+                        if (!isKontrahentExist)
+                        {
+                            try
+                            {
+                                //Dodajemy kontrahenta do bazy
+                                crmModule.Kontrahenci.AddRow(kontrahent);
+                                kontrahent = CreateKontrahent.Create(kontrahent, dane);
+                            }catch(Exception e)
+                            {   endMessage += xmlFName.FileName + ": Blad w danych kontrahenta\n";
+                                continue;
+                            }
+                                 
 
-                    DefinicjaDokumentu def = coreModule.DefDokumentow.WgSymbolu["SPT"];
-                    SprzedazEwidencja nowySPT = new SprzedazEwidencja();
-                    coreModule.DokEwidencja.AddRow(nowySPT);
+                        }
+                        else
+                        {
+                            //Znajdujemy istniejącego kontrahenta w bazie
+                            kontrahent = crmModule.Kontrahenci.WgKodu[dane.Kontrahent.Kod];
+                        }
 
-                    // Ustawienie numeru dokumentu, podmiotu i opisu
+                        DefinicjaDokumentu def = coreModule.DefDokumentow.WgSymbolu["SPT"];
+                        SprzedazEwidencja nowySPT = new SprzedazEwidencja();
+                        coreModule.DokEwidencja.AddRow(nowySPT);
+
+
+                        // Ustawienie numeru dokumentu, podmiotu i opisu
+                    try
+                    { 
                     nowySPT = CreateSPT.Create(nowySPT, def, dane, kontrahent);
+                    }catch (Soneta.Business.DuplicatedRowException e) { continue; }
 
 
+                        // Dodanie elementów VAT
+                        try 
+                        { 
+                         AddElementVat.Add(nowySPT, dane, coreModule, ewidencjaVatModule);
+                        }catch(Exception e) 
+                        { endMessage += xmlFName.FileName + ": Blad w danych ewidencji VAT\n";
+                            continue;
+                        }
 
-                    // Dodanie elementów VAT
-                    AddElementVat.Add(nowySPT, dane, coreModule, ewidencjaVatModule);
-                    
 
-
-                    tran.Commit();
+                        tran.Commit();
                 }
 
                 session.Save();
             }
+            }
+
+            if (endMessage == "")
+                endMessage = "Zakończono proces importowania dokumentu pomyślnie";
+            else
+                endMessage += "Prosze spróbować ponownie albo upewnić się że dokumenty mają poprawyn format";
 
             return new MessageBoxInformation("Import")
             {
                 Type = MessageBoxInformationType.Information,
-                Text = "Zakończono proces importowania dokumentu" + Environment.NewLine + "Odśwież listę lub naciśnij klawisz F5. ",
+                Text = endMessage,
                 OKHandler = () => null
             };
         }
