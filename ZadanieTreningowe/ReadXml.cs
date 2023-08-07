@@ -1,9 +1,7 @@
 ﻿using Soneta.Business;
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace ZadanieTreningowe
@@ -43,7 +41,6 @@ namespace ZadanieTreningowe
                 daneXml[37] = null;
                 daneXml[60] = null;
             }
-
 
             //usunięcie pustych elementów listy
             int i = 0;

@@ -1,9 +1,6 @@
 ﻿using Soneta.CRM;
 using System;
-using System.Collections.Generic;
-using System.Text;
 using System.Text.RegularExpressions;
-using static Soneta.Business.FieldValue;
 
 namespace ZadanieTreningowe
 {
@@ -11,7 +8,7 @@ namespace ZadanieTreningowe
     {
         public static Kontrahent Create(Kontrahent kontrahent, ListXml dane)
         {
-            string kodPocztowyString = dane.Kontrahent.KodPocztowy.Replace("-","");
+            string kodPocztowyString = dane.Kontrahent.KodPocztowy.Replace("-", "");
             int kodPocztowy = Int32.Parse(kodPocztowyString);
 
             kontrahent.Kod = dane.Kontrahent.Kod;

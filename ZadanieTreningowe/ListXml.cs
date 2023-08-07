@@ -1,5 +1,4 @@
-﻿using Soneta.Tools;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace ZadanieTreningowe
 {

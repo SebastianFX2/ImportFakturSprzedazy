@@ -1,25 +1,10 @@
 ﻿using Soneta.Business;
-using Soneta.Business.App;
 using Soneta.Business.UI;
 using Soneta.Core;
 using Soneta.CRM;
-using Soneta.Ksiega.Config;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
-using Soneta.Ksiega;
-using Soneta.Handel;
-using Soneta.Kasa;
 using Soneta.EwidencjaVat;
-using Mono.Cecil.Cil;
-using Soneta.Types;
-using static Soneta.Towary.CenyRabatyProgowe;
-using static Soneta.CRM.CRMModule;
-using Soneta.BI;
-using RabbitMQ.Client.Framing.Impl;
+using System;
+using System.Text;
 
 [assembly: Worker(typeof(ZadanieTreningowe.Zadanie), typeof(DokEwidencja))]
 
@@ -31,7 +16,7 @@ namespace ZadanieTreningowe
         public NamedStream[] XMLFileName { get; set; }
 
         [Context]
-        public Context context { get; set; }
+        public Context Context { get; set; }
 
         [Action(
             "Import faktur",
@@ -39,36 +24,27 @@ namespace ZadanieTreningowe
             Icon = ActionIcon.Open,
             Mode = ActionMode.SingleSession,
             Target = ActionTarget.ToolbarWithText)]
-
         public MessageBoxInformation Fun()
         {
-            List<ListXml> lxml = new List<ListXml>();
-
-
-            string endMessage = "";
-
-            foreach (var xmlFName in XMLFileName) 
+            StringBuilder endMessage = new StringBuilder();
+            foreach (var xmlFName in XMLFileName)
             {
-                
                 ListXml dane = ReadXml.ReadFile(xmlFName);
                 //Otwieramy tranzakcję bazodawnową
-                using (Session session = context.Login.CreateSession(false, true))
-            {
-                CoreModule coreModule = CoreModule.GetInstance(session);
-                CRMModule crmModule = CRMModule.GetInstance(session);
-                HandelModule handel = HandelModule.GetInstance(session);
-                EwidencjaVatModule ewidencjaVatModule = EwidencjaVatModule.GetInstance(session);
+                using (Session session = Context.Login.CreateSession(false, true))
+                {
+                    CoreModule coreModule = CoreModule.GetInstance(session);
+                    CRMModule crmModule = CRMModule.GetInstance(session);
+                    EwidencjaVatModule ewidencjaVatModule = EwidencjaVatModule.GetInstance(session);
 
-                
-                bool isKontrahentExist = false;
+                    bool isKontrahentExist = false;
 
-                Kontrahenci kontrahenci = crmModule.Kontrahenci;
-                //sprawdzanie czy istnieje kontrahent
-                var checkKontahent = kontrahenci.WgKodu[dane.Kontrahent.Kod];
+                    Kontrahenci kontrahenci = crmModule.Kontrahenci;
+                    //sprawdzanie czy istnieje kontrahent
+                    var checkKontahent = kontrahenci.WgKodu[dane.Kontrahent.Kod];
 
-
-                if (checkKontahent != null)
-                    isKontrahentExist = true;
+                    if (checkKontahent != null)
+                        isKontrahentExist = true;
 
                     //Otwieramy transkację biznesową do edycji
                     using (ITransaction tran = session.Logout(true))
@@ -82,12 +58,12 @@ namespace ZadanieTreningowe
                                 //Dodajemy kontrahenta do bazy
                                 crmModule.Kontrahenci.AddRow(kontrahent);
                                 kontrahent = CreateKontrahent.Create(kontrahent, dane);
-                            }catch(Exception e)
-                            {   endMessage += xmlFName.FileName + ": Blad w danych kontrahenta\n";
+                            }
+                            catch (Exception)
+                            {
+                                endMessage.Append(xmlFName.FileName + ": Blad w danych kontrahenta\n");
                                 continue;
                             }
-                                 
-
                         }
                         else
                         {
@@ -99,46 +75,42 @@ namespace ZadanieTreningowe
                         SprzedazEwidencja nowySPT = new SprzedazEwidencja();
                         coreModule.DokEwidencja.AddRow(nowySPT);
 
-
                         // Ustawienie numeru dokumentu, podmiotu i opisu
-                    try
-                    { 
-                    nowySPT = CreateSPT.Create(nowySPT, def, dane, kontrahent);
-                    }catch (Soneta.Business.DuplicatedRowException e) { continue; }
-
+                        try
+                        {
+                            nowySPT = CreateSPT.Create(nowySPT, def, dane, kontrahent);
+                        }
+                        catch (Soneta.Business.DuplicatedRowException) { continue; }
 
                         // Dodanie elementów VAT
-                        try 
-                        { 
-                         AddElementVat.Add(nowySPT, dane, coreModule, ewidencjaVatModule);
-                        }catch(Exception e) 
-                        { endMessage += xmlFName.FileName + ": Blad w danych ewidencji VAT\n";
+                        try
+                        {
+                            AddElementVat.Add(nowySPT, dane, coreModule, ewidencjaVatModule);
+                        }
+                        catch (Exception)
+                        {
+                            endMessage.Append(xmlFName.FileName + ": Blad w danych ewidencji VAT\n");
                             continue;
                         }
 
-
                         tran.Commit();
+                    }
+
+                    session.Save();
                 }
-
-                session.Save();
-            }
             }
 
-            if (endMessage == "")
-                endMessage = "Zakończono proces importowania dokumentu pomyślnie";
+            if (endMessage.Length == 0)
+                endMessage.Append("Zakończono proces importowania dokumentu pomyślnie");
             else
-                endMessage += "Prosze spróbować ponownie albo upewnić się że dokumenty mają poprawyn format";
+                endMessage.Append("Prosze spróbować ponownie albo upewnić się że dokumenty mają poprawyn format");
 
             return new MessageBoxInformation("Import")
             {
                 Type = MessageBoxInformationType.Information,
-                Text = endMessage,
+                Text = endMessage.ToString(),
                 OKHandler = () => null
             };
         }
-
-
-       
     }
 }
-

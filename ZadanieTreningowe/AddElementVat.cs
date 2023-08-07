@@ -2,16 +2,14 @@
 using Soneta.EwidencjaVat;
 using Soneta.Types;
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace ZadanieTreningowe
 {
     public class AddElementVat
     {
-        public static void Add(SprzedazEwidencja nowySPT , ListXml dane, CoreModule coreModule, EwidencjaVatModule ewidencjaVatModule)
+        public static void Add(SprzedazEwidencja nowySPT, ListXml dane, CoreModule coreModule, EwidencjaVatModule ewidencjaVatModule)
         {
-            for(int i =0; i< dane.Vat.Count; i++) 
+            for (int i = 0; i < dane.Vat.Count; i++)
             {
                 ElemEwidencjiVATSprzedaz elemEwidencjiVATSprzedaz = new ElemEwidencjiVATSprzedaz(nowySPT);
                 ewidencjaVatModule.EleEwidencjiVATT.AddRow(elemEwidencjiVATSprzedaz);
