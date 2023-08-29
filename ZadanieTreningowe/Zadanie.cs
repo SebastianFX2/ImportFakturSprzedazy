@@ -3,8 +3,14 @@ using Soneta.Business.UI;
 using Soneta.Core;
 using Soneta.CRM;
 using Soneta.EwidencjaVat;
+using Soneta.Kadry;
+using Soneta.Kalend;
+using Soneta.Tools;
+using Soneta.Types;
 using System;
 using System.Text;
+
+using static Soneta.Place.WypElementNadgodziny;
 
 [assembly: Worker(typeof(ZadanieTreningowe.Zadanie), typeof(DokEwidencja))]
 
@@ -22,14 +28,18 @@ namespace ZadanieTreningowe
             "Import faktur",
             Priority = 1000,
             Icon = ActionIcon.Open,
-            Mode = ActionMode.SingleSession,
-            Target = ActionTarget.ToolbarWithText)]
-        public MessageBoxInformation Fun()
+            Mode = ActionMode.Progress,
+            Target = ActionTarget.Menu | ActionTarget.ToolbarWithText)]
+        public Object Fun()
         {
+            int i = 0;
             StringBuilder endMessage = new StringBuilder();
             foreach (var xmlFName in XMLFileName)
             {
+                Percent percentProgress = new Percent((decimal)i / XMLFileName.Length);
+                TraceInfo.SetProgressBar(percentProgress);
                 ListXml dane = ReadXml.ReadFile(xmlFName);
+                //TraceInfo.WriteProgress("Pobranie danych z pliku");
                 //Otwieramy tranzakcję bazodawnową
                 using (Session session = Context.Login.CreateSession(false, true))
                 {
@@ -43,13 +53,17 @@ namespace ZadanieTreningowe
                     //sprawdzanie czy istnieje kontrahent
                     var checkKontahent = kontrahenci.WgKodu[dane.Kontrahent.Kod];
 
+
+                    isKontrahentExist = checkKontahent != null;
+                /*
                     if (checkKontahent != null)
                         isKontrahentExist = true;
-
+                */
                     //Otwieramy transkację biznesową do edycji
                     using (ITransaction tran = session.Logout(true))
                     {
                         //Tworzymy pustego kontrahenta
+                        //TraceInfo.WriteProgress("Dodanie kontrahenta");
                         Kontrahent kontrahent = new Kontrahent();
                         if (!isKontrahentExist)
                         {
@@ -76,13 +90,15 @@ namespace ZadanieTreningowe
                         coreModule.DokEwidencja.AddRow(nowySPT);
 
                         // Ustawienie numeru dokumentu, podmiotu i opisu
+                        //TraceInfo.WriteProgress("Dodanie dokumentu");
                         try
                         {
                             nowySPT = CreateSPT.Create(nowySPT, def, dane, kontrahent);
                         }
-                        catch (Soneta.Business.DuplicatedRowException) { continue; }
+                        catch (DuplicatedRowException) { continue; }
 
                         // Dodanie elementów VAT
+                        //TraceInfo.WriteProgress("Dodanie elementów VAT");
                         try
                         {
                             AddElementVat.Add(nowySPT, dane, coreModule, ewidencjaVatModule);
@@ -97,7 +113,9 @@ namespace ZadanieTreningowe
                     }
 
                     session.Save();
+                    //TraceInfo.WriteProgress("Zapis do bazy");
                 }
+                i++;
             }
 
             if (endMessage.Length == 0)
