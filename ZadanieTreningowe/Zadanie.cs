@@ -32,17 +32,22 @@ namespace ZadanieTreningowe
             Target = ActionTarget.Menu | ActionTarget.ToolbarWithText)]
         public Object Fun()
         {
+            
             int i = 0;
             StringBuilder endMessage = new StringBuilder();
-            foreach (var xmlFName in XMLFileName)
+            using (Session session = Context.Login.CreateSession(false, true))
             {
+                foreach (var xmlFName in XMLFileName)
+                {
+                i++;
                 Percent percentProgress = new Percent((decimal)i / XMLFileName.Length);
+                double progress = Soneta.Tools.Math.Round(((double)i / XMLFileName.Length)*100,0);
                 TraceInfo.SetProgressBar(percentProgress);
+                TraceInfo.WriteProgress( progress + "%      Importowanie danych");
                 ListXml dane = ReadXml.ReadFile(xmlFName);
                 //TraceInfo.WriteProgress("Pobranie danych z pliku");
                 //Otwieramy tranzakcję bazodawnową
-                using (Session session = Context.Login.CreateSession(false, true))
-                {
+                
                     CoreModule coreModule = CoreModule.GetInstance(session);
                     CRMModule crmModule = CRMModule.GetInstance(session);
                     EwidencjaVatModule ewidencjaVatModule = EwidencjaVatModule.GetInstance(session);
@@ -112,10 +117,10 @@ namespace ZadanieTreningowe
                         tran.Commit();
                     }
 
-                    session.Save();
+                    
                     //TraceInfo.WriteProgress("Zapis do bazy");
                 }
-                i++;
+                session.Save();
             }
 
             if (endMessage.Length == 0)
